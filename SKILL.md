@@ -41,13 +41,13 @@ Determine the user's intent or inspect git status:
   ```bash
   python scripts/scan_diff.py --unstaged --format json --output scan-report.json
   ```
-- **All local changes** (both staged and unstaged):
+- **All local changes with integrated Gemma AI Review**:
   ```bash
-  python scripts/scan_diff.py --all --format json --output scan-report.json
+  python scripts/scan_diff.py --all --ai --ai-model gemma3:4b --format json --output scan-report.json
   ```
 - **Branch comparison against base** (e.g. pull request review against `main`):
   ```bash
-  python scripts/scan_diff.py --base main --format json --output scan-report.json
+  python scripts/scan_diff.py --base main --ai --format json --output scan-report.json
   ```
 
 ### Step 3: Parse and Evaluate JSON Report
@@ -55,8 +55,9 @@ Load and parse `scan-report.json`. Check `status`:
 - `completed`: Scan executed successfully.
 - `error`: One or more execution issues occurred (refer to `errors` array).
 
-Inspect the `summary` block:
+Inspect the `summary` block and `ai_review` block:
 - Group findings into severity tiers: **CRITICAL**, **HIGH**, **MEDIUM**, and **LOW**.
+- Review the `ai_review` section for Gemma's contextual risk analysis, false-positive classification, and safe alternatives.
 - Verify license status under `license.root_license_present`.
 
 ### Step 4: Interpret Findings & Distinguish Confidence
@@ -68,13 +69,16 @@ Consult `references/detection-rules.md` for complete rule details.
   - `code.dangerous_eval`: Use of `eval()` or `exec()`. Recommend structured parsing (`ast.literal_eval` or `json.loads`).
   - `config.hardcoded_localhost`: Development endpoints (`http://localhost`). Recommend extracting to environment configuration.
 
-### Step 5: Optional Local AI Contextual Review
-If a local Ollama instance is running (`http://127.0.0.1:11434`), generate a sanitized diff and execute the local AI reviewer:
+### Step 5: Integrated Local Gemma AI Contextual Review
+When Ollama is installed with Google's open-weight **Gemma 3 (`gemma3:4b`)**, pass `--ai` directly to `scan_diff.py`:
 ```bash
-python scripts/scan_diff.py --all --redacted-diff-out sanitized.patch
+python scripts/scan_diff.py --all --ai --ai-model gemma3:4b
+```
+Alternatively, for standalone report evaluation:
+```bash
 python scripts/ai_review.py --report scan-report.json --diff sanitized.patch --model gemma3:4b
 ```
-*Note*: If Ollama is offline or the model is not installed, continue with the deterministic static scan findings without interruption.
+*Note*: If Ollama is offline, the scanner completes static checks cleanly. Use `--require-ai` if AI review is strictly required.
 
 ### Step 6: Formulate Developer-Facing Summary
 Present the security findings clearly:

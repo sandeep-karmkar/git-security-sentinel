@@ -92,10 +92,10 @@ flowchart TD
 # 1. Stage changes in Git
 git add .
 
-# 2. Run deterministic security scan on staged diff
-python scripts/scan_diff.py --staged
+# 2. Run deterministic security scan with integrated local Gemma AI review
+python scripts/scan_diff.py --staged --ai --ai-model gemma3:4b
 
-# 3. (Optional) Run local AI review for deeper context
+# 3. Alternatively, save report and sanitized diff for standalone analysis
 python scripts/scan_diff.py --staged --output report.json --redacted-diff-out patch.diff
 python scripts/ai_review.py --report report.json --diff patch.diff --model gemma3:4b
 ```
@@ -234,6 +234,9 @@ python scripts/scan_diff.py --all --fail-on critical
 
 # Informational scan: always exit 0 unless an execution error occurs
 python scripts/scan_diff.py --all --fail-on none
+
+# Require local AI review to succeed (fails with exit code 2 if Ollama is unreachable)
+python scripts/scan_diff.py --all --ai --require-ai
 ```
 
 ---
@@ -243,26 +246,31 @@ python scripts/scan_diff.py --all --fail-on none
 The AI reviewer provides human-readable explanations, false-positive classification, and safer code alternatives using open-weight models running on your local machine.
 
 ### Step 1: Install and Launch Ollama
-Download and install Ollama from [ollama.com](https://ollama.com/).
+- **Windows (PowerShell)**:
+  ```powershell
+  winget install Ollama.Ollama
+  ```
+- **macOS / Linux**: Download from [ollama.com/download](https://ollama.com/download).
 
 Start the local daemon:
 ```bash
 ollama serve
 ```
 
-### Step 2: Pull the Recommended Open-Weight Model
-We recommend **Gemma 3 (4B)** (`gemma3:4b`), an efficient open-weight model released by Google that runs comfortably on modern developer laptops:
+### Step 2: Pull the Recommended Gemma Model
+We recommend **Gemma 3 (4B)** (`gemma3:4b`), an efficient open-weight model released by Google that runs comfortably on modern developer hardware:
 ```bash
 ollama pull gemma3:4b
 ```
-*Model Details*: Gemma 3 is released under the open [Gemma Terms of Use](https://ai.google.dev/gemma/terms). Alternative lightweight models such as `llama3.2:3b` or `mistral:7b` can also be used by passing `--model <model-name>`.
+*Model Details*: Gemma 3 is released under the open [Gemma Terms of Use](https://ai.google.dev/gemma/terms). Alternative lightweight models such as `llama3.2:3b` or `mistral:7b` can also be used by passing `--ai-model <model-name>`.
 
 ### Step 3: Run the Local AI Review
 ```bash
-# Generate report and sanitized patch
-python scripts/scan_diff.py --all --output scan-report.json --redacted-diff-out sanitized.patch
+# Option A: Integrated scan and AI review in a single command
+python scripts/scan_diff.py --all --ai --ai-model gemma3:4b
 
-# Execute local AI review
+# Option B: Standalone execution from an existing scan report
+python scripts/scan_diff.py --all --output scan-report.json --redacted-diff-out sanitized.patch
 python scripts/ai_review.py --report scan-report.json --diff sanitized.patch --model gemma3:4b
 ```
 

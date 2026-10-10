@@ -93,9 +93,10 @@ class ScanReport:
     license: LicenseStatus = field(default_factory=lambda: LicenseStatus(False))
     summary: ScanSummary = field(default_factory=ScanSummary)
     errors: List[str] = field(default_factory=list)
+    ai_review: Optional[Dict[str, Any]] = None
 
     def to_dict(self) -> Dict[str, Any]:
-        return {
+        data = {
             "scanner": self.scanner,
             "version": self.version,
             "status": self.status,
@@ -105,6 +106,9 @@ class ScanReport:
             "summary": self.summary.to_dict(),
             "errors": self.errors,
         }
+        if self.ai_review is not None:
+            data["ai_review"] = self.ai_review
+        return data
 
 
 # ============================================================================
@@ -639,6 +643,18 @@ def print_text_report(report: ScanReport, out_stream=sys.stdout) -> None:
 
     print("=" * 70, file=out_stream)
 
+    if report.ai_review:
+        print("", file=out_stream)
+        try:
+            from ai_review import print_ai_review
+            print_ai_review(report.ai_review, out_stream=out_stream)
+        except ImportError:
+            try:
+                from scripts.ai_review import print_ai_review
+                print_ai_review(report.ai_review, out_stream=out_stream)
+            except Exception:
+                pass
+
 
 # ============================================================================
 # Main Entry Point
@@ -702,6 +718,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         "--exclude",
         metavar="PATTERNS",
         help="Comma-separated file glob patterns to exclude from scanning (e.g. 'tests/*,examples/*').",
+    )
+    parser.add_argument(
+        "--ai", "--ai-review",
+        dest="ai",
+        action="store_true",
+        help="Run local AI review with Gemma model via Ollama following scan.",
+    )
+    parser.add_argument(
+        "--ai-model",
+        default="gemma3:4b",
+        help="Local Ollama model identifier (default: 'gemma3:4b').",
+    )
+    parser.add_argument(
+        "--ai-url",
+        default="http://127.0.0.1:11434",
+        help="Local Ollama endpoint URL (default: 'http://127.0.0.1:11434').",
+    )
+    parser.add_argument(
+        "--require-ai",
+        action="store_true",
+        help="Fail scan with exit code 2 if local AI model / Ollama is unreachable.",
     )
     parser.add_argument(
         "--repo-root",
@@ -778,6 +815,34 @@ def main(argv: Optional[List[str]] = None) -> int:
         errors=[],
     )
 
+    # Run integrated local AI review if requested
+    if args.ai:
+        try:
+            try:
+                from ai_review import run_ai_review
+            except ImportError:
+                from scripts.ai_review import run_ai_review
+
+            sanitized_patch = generate_sanitized_patch(diff_text)
+            findings_dicts = [f.to_dict() for f in findings]
+            report.ai_review = run_ai_review(
+                findings=findings_dicts,
+                sanitized_diff=sanitized_patch,
+                model=args.ai_model,
+                ollama_url=args.ai_url,
+            )
+        except Exception as exc:
+            report.ai_review = {
+                "status": "error",
+                "model": args.ai_model,
+                "error_type": "invocation_error",
+                "message": f"Failed to invoke local AI reviewer: {exc}",
+            }
+
+        if args.require_ai and report.ai_review.get("status") == "error":
+            report.errors.append(f"Required AI review failed: {report.ai_review.get('message')}")
+            report.status = "error"
+
     # Save sanitized patch if requested
     if args.redacted_diff_out:
         try:
@@ -798,6 +863,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print(json.dumps(report.to_dict(), indent=2))
     else:
         print_text_report(report)
+
+    # Check for required AI failure
+    if args.require_ai and report.ai_review and report.ai_review.get("status") == "error":
+        return 2
 
     # Check failure threshold
     threshold = args.fail_on.lower()

@@ -151,40 +151,76 @@ def call_ollama(
         }
 
 
-def print_ai_review(result: Dict[str, Any]) -> None:
+def run_ai_review(
+    findings: List[Dict[str, Any]],
+    sanitized_diff: Optional[str] = None,
+    model: str = DEFAULT_MODEL,
+    ollama_url: str = DEFAULT_OLLAMA_HOST,
+    timeout: int = DEFAULT_TIMEOUT_SECONDS,
+    allow_remote_host: bool = False,
+) -> Dict[str, Any]:
+    """Execute local Ollama AI review on findings, returning structured results."""
+    if not allow_remote_host and not is_loopback_host(ollama_url):
+        return {
+            "status": "error",
+            "model": model,
+            "error_type": "security_refusal",
+            "message": f"'{ollama_url}' is not a local loopback address (127.0.0.1 / localhost).",
+        }
+
+    if not findings:
+        return {
+            "status": "skipped",
+            "model": model,
+            "message": "No findings to review.",
+        }
+
+    system_prompt = build_system_prompt()
+    user_prompt = build_user_prompt(findings, sanitized_diff)
+
+    return call_ollama(
+        endpoint=ollama_url,
+        model=model,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        timeout=timeout,
+    )
+
+
+def print_ai_review(result: Dict[str, Any], out_stream=sys.stdout) -> None:
     """Print readable terminal output for AI review."""
-    print("=" * 70)
-    print("  GIT SECURITY SENTINEL - LOCAL AI REVIEW")
-    print("=" * 70)
-    print(f"Status      : {result.get('status', 'unknown').upper()}")
-    print(f"Model       : {result.get('model', 'unknown')}")
+    print("=" * 70, file=out_stream)
+    print("  GIT SECURITY SENTINEL - LOCAL AI REVIEW (GEMMA)", file=out_stream)
+    print("=" * 70, file=out_stream)
+    print(f"Status      : {result.get('status', 'unknown').upper()}", file=out_stream)
+    print(f"Model       : {result.get('model', 'unknown')}", file=out_stream)
 
     if result.get("status") == "error":
-        print(f"\n[!] AI Review Unavailable: {result.get('message')}")
-        print("    Note: The static scanner findings remain valid and unaffected.")
-        print("=" * 70)
+        print(f"\n[!] AI Review Unavailable: {result.get('message')}", file=out_stream)
+        print("    Note: The static scanner findings remain valid and unaffected.", file=out_stream)
+        print("=" * 70, file=out_stream)
         return
 
     review = result.get("review")
     if isinstance(review, dict):
         summary = review.get("summary", "No summary provided.")
-        print(f"\nAI Summary  :\n  {summary}\n")
+        print(f"\nAI Summary  :\n  {summary}\n", file=out_stream)
         reviews = review.get("reviews", [])
         if reviews:
-            print("[*] Detailed Findings Analysis:\n")
+            print("[*] Detailed Findings Analysis:\n", file=out_stream)
             for idx, r in enumerate(reviews, start=1):
                 rule = r.get("rule_id", "Unknown")
                 loc = f"{r.get('file', 'unknown')}:{r.get('line', '?')}"
                 assessment = r.get("assessment", "unspecified").replace("_", " ").upper()
-                print(f"  {idx}. [{assessment}] {rule} at {loc}")
-                print(f"     Context : {r.get('risk_explanation', 'N/A')}")
-                print(f"     Remedy  : {r.get('safe_alternative', 'N/A')}")
-                print("")
+                print(f"  {idx}. [{assessment}] {rule} at {loc}", file=out_stream)
+                print(f"     Context : {r.get('risk_explanation', 'N/A')}", file=out_stream)
+                print(f"     Remedy  : {r.get('safe_alternative', 'N/A')}", file=out_stream)
+                print("", file=out_stream)
     elif "raw_response" in result:
-        print("\nModel Output (Raw):\n")
-        print(result["raw_response"])
+        print("\nModel Output (Raw):\n", file=out_stream)
+        print(result["raw_response"], file=out_stream)
 
-    print("=" * 70)
+    print("=" * 70, file=out_stream)
 
 
 def main(argv: Optional[List[str]] = None) -> int:

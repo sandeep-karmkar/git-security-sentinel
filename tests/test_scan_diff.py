@@ -323,6 +323,54 @@ class TestCLIAndExitCodes(unittest.TestCase):
         ])
         self.assertEqual(code, 2)
 
+    @patch("urllib.request.urlopen")
+    def test_scan_diff_direct_ai_integration(self, mock_urlopen):
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "response": json.dumps({
+                "summary": "Reviewed 1 AWS key finding.",
+                "reviews": [
+                    {
+                        "rule_id": "secret.aws_access_key",
+                        "file": "secret.py",
+                        "line": 1,
+                        "assessment": "genuine_risk",
+                        "risk_explanation": "Exposed AWS access keys must be revoked.",
+                        "safe_alternative": "Use IAM roles."
+                    }
+                ]
+            })
+        }).encode("utf-8")
+        mock_urlopen.return_value.__enter__.return_value = mock_response
+
+        report_out = self.test_path / "ai-integrated-report.json"
+        code = scan_diff.main([
+            "--diff-file", str(self.secret_diff),
+            "--ai",
+            "--ai-model", "gemma3:4b",
+            "--output", str(report_out),
+            "--repo-root", str(self.test_path),
+        ])
+        self.assertEqual(code, 1) # Still fails on high severity finding
+        report_data = json.loads(report_out.read_text(encoding="utf-8"))
+        self.assertIn("ai_review", report_data)
+        self.assertEqual(report_data["ai_review"]["status"], "success")
+        self.assertEqual(report_data["ai_review"]["model"], "gemma3:4b")
+
+    def test_scan_diff_require_ai_failure(self):
+        report_out = self.test_path / "ai-fail-report.json"
+        code = scan_diff.main([
+            "--diff-file", str(self.secret_diff),
+            "--ai",
+            "--ai-url", "http://127.0.0.1:65432",
+            "--require-ai",
+            "--output", str(report_out),
+            "--repo-root", str(self.test_path),
+        ])
+        self.assertEqual(code, 2)
+        report_data = json.loads(report_out.read_text(encoding="utf-8"))
+        self.assertEqual(report_data["status"], "error")
+
 
 class TestGitIntegration(unittest.TestCase):
     """Test git command integration within temporary Git repositories."""
